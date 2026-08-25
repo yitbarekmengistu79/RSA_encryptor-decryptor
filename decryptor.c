@@ -1,84 +1,82 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
-#define STATE_SIZE 256
-
-void rc4_init(unsigned char *S, const unsigned char *key, size_t key_len) {
-    for (int i = 0; i < STATE_SIZE; i++) {
-        S[i] = (unsigned char)i;
+unsigned long long power_mod(unsigned long long base, unsigned long long exp, unsigned long long mod) {
+    unsigned long long result = 1;
+    base = base % mod;
+    while (exp > 0) {
+        if (exp % 2 == 1) result = (__int128)result * base % mod;
+        base = (__int128)base * base % mod;
+        exp /= 2;
     }
+    return result;
+}
+
+void rc4_init(unsigned char *S, unsigned char *key, int key_len) {
+    for (int i = 0; i < 256; i++) S[i] = i;
     int j = 0;
-    for (int i = 0; i < STATE_SIZE; i++) {
-        j = (j + S[i] + key[i % key_len]) % STATE_SIZE;
+    for (int i = 0; i < 256; i++) {
+        j = (j + S[i] + key[i % key_len]) % 256;
         unsigned char temp = S[i];
         S[i] = S[j];
         S[j] = temp;
     }
 }
-void rc4_decrypt(const unsigned char *key, size_t key_len, unsigned char *data, size_t data_len) {
-    unsigned char S[STATE_SIZE];
-    rc4_init(S, key, key_len);
 
+void rc4_crypt(unsigned char *S, unsigned char *data, size_t len) {
     int i = 0, j = 0;
-    for (size_t k = 0; k < data_len; k++) {
-        i = (i + 1) % STATE_SIZE;
-        j + (j + S[i]) % STATE_SIZE;
-
+    for (size_t n = 0; n < len; n++) {
+        i = (i + 1) % 256;
+        j = (j + S[i]) % 256;
         unsigned char temp = S[i];
         S[i] = S[j];
         S[j] = temp;
-        unsigned char keystream_byte = S[(S[i] + S[j]) % STATE_SIZE];
-        data[k] ^= keystream_byte;
+        unsigned char K = S[(S[i] + S[j]) % 256];
+        data[n] ^= K;
     }
 }
-int decrypt_file(const char *input_path, const char *output_path, const unsigned char *key, size_t key_len) {
-    FILE *infile = fopen(input_path, "rb");
-    if (!infile) {
-        perror("error opening encrypted file");
-        return -1;
-    }
-    fseek(infile, 0, SEEK_END);
-    long file_size = ftell(infile);
-    fseek(infile, 0, SEEK_SET);
 
-    if (file_size <= 0) {
-        printf("file is empty. nothing to decrypt\n");
-        fclose(infile);
-        return 0;
-    }
-    unsigned char *buffer = (unsigned char *)malloc(file_size);
-    if(!buffer) {
-        perror("memory allocation error");
-        fclose(infile);
-        return -1;
-    }
-    fread(buffer, 1, file_size, infile);
-    fclose(infile);
-    rc4_decrypt(key, key_len, buffer, file_size);
-    FILE *outfile = fopen(output_path, "wb");
-    if(!infile) {
-        perror("error opening output file");
-        free(buffer);
-        return -1;
-    }
-    fwrite(buffer, 1, file_size, outfile);
-    free(buffer);
-    fclose(outfile);
-    return 0;
-}
 int main(int argc, char *argv[]) {
-    const char *input_file = "file.txt.enc";
-    const char *output_file = "file_decrypted.txt";
-    const unsigned char key[] = "MySecretKey123";
-    size_t key_len = strlen((const char *)key);
-
-    printf("starting decryption...\n");
-    if(decrypt_file(input_file, output_file, key, key_len) == 0) {
-        printf("file succesfully decrypted: %s -> %s\n", input_file, output_file);
-    } else {
-        printf("decryption failed.\n");
+    if (argc < 2) {
+        printf("Usage: %s <filename>\n", argv[0]);
         return 1;
     }
+
+    const char *filename = argv[1];
+    unsigned long long d = 2753, n = 3233;
+
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) { perror("Failed to open file"); return 1; }
+    unsigned long long encrypted_key[4];
+    if (fread(encrypted_key, sizeof(unsigned long long), 4, fp) != 4) {
+        printf("Invalid file header format.\n");
+        fclose(fp);
+        return 1;
+    }
+    unsigned char stream_key[4];
+    for (int i = 0; i < 4; i++) {
+        stream_key[i] = (unsigned char)power_mod(encrypted_key[i], d, n);
+    }
+    long header_size = sizeof(unsigned long long) * 4;
+    fseek(fp, 0, SEEK_END);
+    long filesize = ftell(fp);
+    long payload_size = filesize - header_size;
+    fseek(fp, header_size, SEEK_SET);
+
+    unsigned char *payload = malloc(payload_size);
+    if (!payload) { fclose(fp); return 1; }
+    fread(payload, 1, payload_size, fp);
+    fclose(fp);
+    unsigned char S[256];
+    rc4_init(S, stream_key, 4);
+    rc4_crypt(S, payload, payload_size);
+    fp = fopen(filename, "wb");
+    if (!fp) { free(payload); return 1; }
+
+    fwrite(payload, 1, payload_size, fp);
+
+    fclose(fp);
+    free(payload);
+    printf("Successfully decrypted: %s\n", filename);
     return 0;
 }
