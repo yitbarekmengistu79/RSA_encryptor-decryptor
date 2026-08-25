@@ -70,7 +70,7 @@ int decrypt_file(const char *input_path, const char *output_path, const unsigned
 int main(int argc, char *argv[]) {
     const char *input_file = "file.txt.enc";
     const char *output_file = "file_decrypted.txt";
-    const unsigned char key[] = "yitbarek's secret key";
+    const unsigned char key[] = "MySecretKey123";
     size_t key_len = strlen((const char *)key);
 
     printf("starting decryption...\n");
